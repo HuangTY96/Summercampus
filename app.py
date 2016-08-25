@@ -30,15 +30,15 @@ def Image_design():
     text1 = text1.replace('\\n',' ')
     text1 = text1.replace('\"',' ')
 
-    f1 = open('/home/user/Documents/web/image.txt','w')
+    f1 = open('image.txt','w')
     f1.write(text1)
     f1.close()
 
     tone = tone_analyze(text1)
     cnt = wordcount()
     eslang = translations(text1)
-    do_with_cassandra(vs,text1,eslang,tone)
-    return '<p>IMAGE IDENTIFY: '+vs +'</p>' + '<p>Spanish: '+eslang+'</p>'+ '<p>English: '+text1+'</p>'+ '<p>Word count: '+cnt+'</p>'+'<p>TONE: '+tone+'</p>'
+    do_with_cassandra(vs,text1,eslang,tone,cnt)
+    return '<p>IMAGE IDENTIFY: '+text1 +'</p>' + '<p>Spanish: '+eslang+'</p>'+ '<p>English: '+text1+'</p>'+ '<p>Word count: '+cnt+'</p>'+'<p>TONE: '+tone+'</p>'
 
 def tone_analyze(k):
     tone_analyzer = ToneAnalyzerV3(
@@ -65,10 +65,11 @@ def wordcount():
     spark = SparkSession\
         .builder\
         .appName("PythonWordCount")\
+        .config('spark.sql.warehouse.dir', 'file:///app/') \
         .getOrCreate()
 
-    lines = spark.read.text('/home/user/Documents/web/image.txt').rdd.map(lambda r: r[0])
-    f2 = open('/home/user/Documents/web/image.txt')
+    lines = spark.read.text('image.txt').rdd.map(lambda r: r[0])
+    f2 = open('image.txt')
     print('------------------------------------------------------------')
     print (f2.read())
     print('------------------------------------------------------------')
@@ -85,16 +86,16 @@ def wordcount():
     #spark.stop()
     return aa
 
-def do_with_cassandra(_vs,_en,_es,_tone):
+def do_with_cassandra(_vs,_en,_es,_tone,_word):
     cluster = Cluster(['172.17.0.2'])
     session = cluster.connect()
     session.execute('USE mykeyspace')
     session.execute(
         """
-        INSERT INTO example (vs,en,es,tone)
-        VALUES (%s,%s,%s,%s)
+        INSERT INTO example (vs,en,es,tone,word)
+        VALUES (%s,%s,%s,%s,%s)
         """,
-        (_vs,_en,_es,_tone)
+        (_vs,_en,_es,_tone,_word)
     )
 
 
@@ -115,7 +116,7 @@ def translation():
         username='b869542b-87b7-4d87-ae68-615d0eab46fb', 
         password='dWoKpFCDjSat')
 
-    f1 = open('/home/user/Documents/web/trans.txt','r')
+    f1 = open('trans.txt','r')
     content1 = f1.read()
     eslang =  language_translation.translate(
         text=content1, 
@@ -134,7 +135,7 @@ def test():
 
     for kk in se:
         #cnt = test_spark(kk.en)
-        return  '<p>IMAGE IDENTIFY: '+kk.vs +'</p>' + '<p>Spanish: '+kk.es+'</p>'+ '<p>English: '+kk.en+'</p>'+'<p>TONE: '+kk.tone+'</p>'
+        return  '<p>IMAGE IDENTIFY: '+kk.vs +'</p>' + '<p>Spanish: '+kk.es+'</p>'+ '<p>English: '+kk.en+'</p>'+'<p>TONE: '+kk.tone+'</p>'+'<p>WORD COUNT: '+kk.word+'</p>'
 
 @app.route("/testspark") 
 def test_spark():
@@ -143,7 +144,7 @@ def test_spark():
         .appName("PythonWordCount")\
         .getOrCreate()
 
-    lines = spark.read.text('/home/user/Documents/web/image.txt').rdd.map(lambda r: r[0])
+    lines = spark.read.text('image.txt').rdd.map(lambda r: r[0])
     counts = lines.flatMap(lambda x: x.split(' ')) \
                   .map(lambda x: (x, 1)) \
                   .reduceByKey(add)
@@ -154,6 +155,15 @@ def test_spark():
         print("%s: %i" % (word, count))
     #spark.stop()
     return aa
+
+@app.route("/createtable") 
+def create_table():
+    cluster = Cluster(['172.17.0.2'])
+    session = cluster.connect()
+    session.execute("""create keyspace mykeyspace with replication={'class':'SimpleStrategy','replication_factor':3};""")
+    session.execute('use mykeyspace;')
+    session.execute('CREATE TABLE example (vs text, en text, es text, tone text, word text, PRIMARY KEY (vs));')
+    return '<p>Create Table Sucess</p>'
 
 if __name__ == "__main__":
     app.run(debug=True,host='0.0.0.0')
